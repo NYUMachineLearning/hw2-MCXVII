@@ -63,7 +63,6 @@ library(ggplot2)
 library(dplyr)
 library(ggfortify)
 
-
 #Mauna Loa CO2 concentrations
 data(airquality)
 ```
@@ -72,8 +71,20 @@ data(airquality)
 1. Split data into training and test set (75% in train set, 25% in test set)
 
 ```{r}
-#train_regression = 
-#test_regression = 
+# This is how we want to split our data
+sample_size <- floor(0.75 * nrow(airquality))
+
+# Set seed for reproducibility
+set.seed(17)
+
+# Randomly generate indices
+split_index <- sample(seq_len(nrow(airquality)), size = sample_size)
+
+# Take indices for the training set
+train_regression = airquality[split_index,]
+
+# Everything else is for the test set
+test_regression = airquality[-split_index,]
 ```
 
 
@@ -89,9 +100,9 @@ We will predict the response of the Temperature based on Wind.
 
 This is the data we will fit a linear model to. 
 ```{r}
-# ggplot(data = train_regression) +
-#   geom_point(aes(x=Wind, y=Temp)) +
-#   theme_bw()
+ggplot(data = train_regression) +
+   geom_point(aes(x=Wind, y=Temp)) +
+   theme_bw()
 ```
 
 2. Create and fit a linear model to predict Temperature from Wind using the training set
@@ -99,13 +110,22 @@ This is the data we will fit a linear model to.
 ```{r}
 #help(train)
 
-#linear_regression <- train( ~ , data= , method = "lm")
+# Create linear model
+linear_regression <- train(Temp ~ Wind, data = train_regression, method = "lm")
+
+# View details
+summary(linear_regression)
+# Our slope is -1.253 and our intercept is 89.962
 ```
 
 
 3. Vizualize how your model performed on the train data by plotting the regression line on top of the train data points. 
 ```{r}
-
+# Add regression line based on slope and intercept found previously
+ggplot(data = train_regression) +
+  geom_point(aes(x=Wind, y=Temp)) +
+  theme_bw() +
+  geom_abline(slope = -1.253, intercept = 89.962, col = "red")
 ```
 
 
@@ -119,49 +139,110 @@ This is the data we will fit a linear model to.
 4 a) See how the model performs on the test data
 ```{r}
 #help(predict)
-#linear_predict <- predict(, newdata=)
+
+# Takes x-values from test data and predicts y-values (Temp) based on our model
+linear_predict <- predict(linear_regression, newdata=test_regression)
+
+# Viewing our Wind and Temp from the test set alongside the predicted temp from the model's prediction
+compare <- select(test_regression, Wind, Temp)
+compare["Pred_Temp"] = linear_predict
+compare
 ```
 
 4 b) Look at the residuals. Are they close to zero?
 ```{r}
 #look at the median residual value. Close to zero is best
 #help(summary)
+
+# View residuals of our model
+summary(linear_regression)
+# Our median residual is 1.500, which is not too far from 0
 ```
 
 
 4 c) Plot predicted temperature vs observed temperature. A strong model should show a strong correlation
 ```{r}
+# Find the fit to predicted temperature vs observed temperature
+comparison_model <- train(Temp ~ Pred_Temp, data = compare, method = "lm")
+summary(comparison_model)$coefficients
+# Our slope is 0.8856835 and our intercept is 10.4772920
 
+# Plot predicted temperature vs observed temperature with the above slope/intercept
+ggplot(data = compare) +
+  geom_point(aes(y=Temp, x=Pred_Temp)) +
+  theme_bw() +
+  geom_abline(slope = 0.8856835, intercept = 10.4772920, col = "red")
 ```
 
 4 d) Visualize the predicted values in relation to the real data points. Look for homoscedasticity
 ```{r}
 # Extract coefficients from the model
+summary(linear_regression)$coefficients
 
 # plot the regression line on the predicted values
+ggplot(data = test_regression) +
+  geom_point(aes(x=Wind, y=linear_predict), col="blue") +
+  geom_abline(slope = -1.253, intercept = 89.962, col = "red") +
+  theme_bw()
 
 # plot the original test values
+ggplot(data = test_regression) +
+  geom_point(aes(x=Wind, y=Temp)) +
+  geom_point(aes(x=Wind, y=linear_predict), col="blue") +
+  geom_abline(slope = -1.253, intercept = 89.962, col = "red") +
+  theme_bw()
 
+# Recreating Q4d.png
+ggplot(data = test_regression) +
+  geom_point(aes(x=Wind, y=Temp, col = 'Actual')) +
+  geom_point(aes(x=Wind, y=linear_predict, col = 'Predicted')) +
+  geom_segment(aes(x=Wind, xend=Wind, y=Temp, yend=linear_predict)) +
+  theme_bw()
 ```
 
 4 e) Residuals should be normally distributed. Plot the density of the residuals
 ```{r}
-#residuals_lin <- residuals(linear_regression)
+# Acquire residuals from our model
+residuals_lin <- residuals(linear_regression)
 
-#ggplot(data=residvpredict) +
-#  geom_density(aes(residual))
+# Plot density of these residuals
+ggplot(data = train_regression) +
+  geom_density(aes(residuals_lin))
+
+# Double check with another method
+plot(density(resid(linear_regression)))
 ```
 
 
 4 f) Independent variables and residuals should not be correlated
 ```{r}
-#cor.test(train_regression$Wind, resid(linear_regression))
+cor.test(train_regression$Wind, resid(linear_regression))
+# Our p-value = 1
+# alternative hypothesis: true correlation is not equal to 0
 ```
 
-
+  
 ### Linear Regression with Regularization
 
 5. Create a linear model using L1 or L2 regularization to predict Temperature from Wind and Month variables. Plot your predicted values and the real Y values on the same plot. 
 
+```{r}
+# Prepare control parameter
+ctrl =  trainControl(method = "boot", 15)
 
+# Create L2 regression model (aka ridge regression)
+L2 <- train(Temp ~ Wind + Month, data = train_regression, method = 'ridge', trControl= ctrl)
+
+# Use model to predict values based on test set
+L2_pred <- predict(L2, newdata = test_regression)
+
+# Combine actual temperature with predicted temperature
+combined <- data.frame(wind = test_regression$Wind, actual_temp=test_regression$Temp, predicted_temp=L2_pred)
+
+# Plot actual and predicted values on the same plot
+ggplot(data = combined) +
+  geom_point(aes(x=wind, y = actual_temp, col="Actual")) + 
+  geom_point(aes(x=wind, y = predicted_temp, col="Predicted")) + 
+  theme_bw()
+```
 
